@@ -32,8 +32,14 @@ def _dt(val):
     if val is None:
         return None
     if isinstance(val, datetime):
-        return val.isoformat()
-    return str(val)
+        return val.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+    # Try parsing string timestamps
+    try:
+        from datetime import datetime as dt
+        parsed = dt.fromisoformat(str(val).replace('+00:00', '').split('+')[0])
+        return parsed.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+    except:
+        return str(val)
 
 # ─────────────────────────────────────────────
 #  SCHEMA INIT
