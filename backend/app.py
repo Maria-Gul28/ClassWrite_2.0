@@ -4,7 +4,7 @@ load_dotenv()
 import os
 from datetime import datetime, timedelta, timezone
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
@@ -12,7 +12,7 @@ import jwt
 
 import database
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static/app', static_url_path='')
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -21,6 +21,20 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 with app.app_context():
     database.init_db()
+
+# ─────────────────────────────────────────────
+#  SERVE REACT APP
+# ─────────────────────────────────────────────
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_react(path):
+    if path.startswith('api/'):
+        return jsonify({'error': 'Not found'}), 404
+    full_path = os.path.join(app.static_folder, path)
+    if path and os.path.exists(full_path):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, 'index.html')
 
 # ─────────────────────────────────────────────
 #  JWT HELPERS
@@ -369,6 +383,7 @@ def handle_leave(data):
 
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True, port=5000)
+    port = int(os.environ.get('PORT', 8080))
+    socketio.run(app, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
 else:
     application = app
