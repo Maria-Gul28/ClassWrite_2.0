@@ -1,0 +1,158 @@
+@import "tailwindcss";
+
+@theme {
+  --font-hand: 'Caveat', cursive;
+  --font-body: 'DM Sans', sans-serif;
+  --font-serif: 'Lora', serif;
+
+  --color-sky-50: #eef4fb;
+  --color-sky-100: #daeef9;
+  --color-sky-200: #b8d9ee;
+  --color-sky-300: #90bce0;
+  --color-sky-400: #2e9dd1;
+  --color-sky-500: #1a7aa8;
+  --color-sky-600: #1a6a90;
+
+  --color-apple-400: #e05555;
+  --color-apple-500: #d63b3b;
+  --color-apple-600: #b02828;
+
+  --color-ink-50: #f0f8ff;
+  --color-ink-100: #daeef9;
+  --color-ink-800: #1e3a4a;
+  --color-ink-900: #1a2e40;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-body);
+    font-size: 18px;
+    background-color: #dff0fb;
+    background-image:
+      repeating-linear-gradient(transparent, transparent 27px, rgba(46,157,209,0.09) 28px),
+      linear-gradient(90deg, transparent 52px, rgba(214,59,59,0.10) 53px, transparent 54px);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+
+  /* Bump ALL Caveat/font-hand text one size globally */
+  .font-hand {
+    font-size: 1.15em;
+  }
+}
+
+@layer components {
+  .card-doodle {
+    background: white;
+    border: 2px solid var(--color-sky-200);
+    border-radius: 4% 8% 5% 7% / 6% 4% 8% 5%;
+    box-shadow: 3px 4px 0 rgba(46,157,209,0.20);
+  }
+
+  .btn {
+    font-family: var(--font-hand);
+    font-size: 1.15rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: 999px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .btn-primary {
+    background: var(--color-sky-400);
+    color: white;
+    box-shadow: 3px 3px 0 #1a6a90;
+  }
+  .btn-primary:hover {
+    background: var(--color-sky-500);
+    transform: translate(1px, 1px);
+    box-shadow: 1px 1px 0 #1a6a90;
+  }
+  .btn-danger {
+    background: var(--color-apple-500);
+    color: white;
+    box-shadow: 3px 3px 0 #b02828;
+  }
+  .btn-danger:hover {
+    background: var(--color-apple-600);
+    transform: translate(1px, 1px);
+    box-shadow: 1px 1px 0 #b02828;
+  }
+  .btn-secondary {
+    background: transparent;
+    border: 2px solid var(--color-sky-200);
+    color: var(--color-ink-800);
+  }
+  .btn-secondary:hover {
+    border-color: var(--color-sky-400);
+  }
+  .btn-ghost {
+    background: var(--color-sky-50);
+    border: 2px solid var(--color-sky-200);
+    color: var(--color-ink-800);
+  }
+  .btn-ghost:hover {
+    border-color: var(--color-sky-400);
+    background: white;
+    box-shadow: 2px 2px 0 #2e9dd1;
+  }
+
+  .input-doodle {
+    width: 100%;
+    padding: 0.85rem 1.1rem;
+    border-radius: 8px 14px 10px 12px / 12px 10px 14px 8px;
+    border: 2px solid var(--color-sky-200);
+    background: var(--color-sky-50);
+    font-family: var(--font-body);
+    font-size: 1.05rem;
+    outline: none;
+    transition: all 0.15s;
+  }
+  .input-doodle:focus {
+    border-color: var(--color-sky-400);
+    background: white;
+    box-shadow: 2px 2px 0 rgba(46,157,209,0.20);
+  }
+
+  .page-title {
+    font-family: var(--font-hand);
+    font-size: 2.5rem;
+    color: var(--color-ink-900);
+    display: inline-block;
+    position: relative;
+    padding-bottom: 0.25rem;
+  }
+  .page-title::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0; height: 5px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='5'%3E%3Cpath d='M0 2.5 Q5 0 10 2.5 Q15 5 20 2.5 Q25 0 30 2.5 Q35 5 40 2.5' fill='none' stroke='%23d63b3b' stroke-width='1.8'/%3E%3C/svg%3E");
+    background-repeat: repeat-x;
+    background-size: 40px 5px;
+  }
+
+  .badge {
+    font-family: var(--font-hand);
+    font-size: 1.05rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    background: var(--color-sky-100);
+    color: var(--color-ink-800);
+  }
+
+  .class-code {
+    font-family: var(--font-hand);
+    font-size: 1.35rem;
+    letter-spacing: 0.25em;
+    padding: 0.5rem 1rem;
+    border-radius: 999px;
+    background: var(--color-sky-400);
+    color: white;
+    user-select: all;
+    cursor: pointer;
+    box-shadow: 2px 2px 0 #1a6a90;
+  }
+}
