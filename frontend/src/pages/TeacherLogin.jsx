@@ -38,12 +38,12 @@ export default function TeacherLogin() {
         )}
 
         <div>
-          <label className="block font-hand text-lg text-ink-800 uppercase tracking-widest mb-1">Email</label>
+          <label className="block font-hand text-sm text-ink-800 uppercase tracking-widest mb-1">Email</label>
           <input className="input-doodle" type="email" placeholder="you@school.edu"
             value={form.email} onChange={set('email')} required />
         </div>
         <div>
-          <label className="block font-hand text-lg text-ink-800 uppercase tracking-widest mb-1">Password</label>
+          <label className="block font-hand text-sm text-ink-800 uppercase tracking-widest mb-1">Password</label>
           <input className="input-doodle" type="password" placeholder="Your password"
             value={form.password} onChange={set('password')} required
             onKeyDown={e => e.key === 'Enter' && handleSubmit(e)} />

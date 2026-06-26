@@ -37,7 +37,7 @@ export default function StudentJoin() {
         )}
 
         <div>
-          <label className="block font-hand text-lg text-ink-800 uppercase tracking-widest mb-1">Your name</label>
+          <label className="block font-hand text-sm text-ink-800 uppercase tracking-widest mb-1">Your name</label>
           <input className="input-doodle" placeholder="Sara Khan"
             value={form.name}
             onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
@@ -45,23 +45,23 @@ export default function StudentJoin() {
         </div>
 
         <div>
-          <label className="block font-hand text-lg text-ink-800 uppercase tracking-widest mb-1">Class code</label>
+          <label className="block font-hand text-sm text-ink-800 uppercase tracking-widest mb-1">Class code</label>
           <input className="input-doodle font-hand text-xl tracking-widest text-center"
             placeholder="ABC123" maxLength={6}
             value={form.class_code}
             onChange={e => setForm(f => ({ ...f, class_code: e.target.value.toUpperCase() }))}
             required />
-          <p className="font-hand text-base text-sky-400 text-center mt-1">6-character code — ask your teacher</p>
+          <p className="font-hand text-2xl text-sky-400 text-center mt-1">6-character code — ask your teacher</p>
         </div>
 
         <div>
-          <label className="block font-hand text-lg text-ink-800 uppercase tracking-widest mb-1">4-digit PIN</label>
+          <label className="block font-hand text-sm text-ink-800 uppercase tracking-widest mb-1">4-digit PIN</label>
           <input className="input-doodle font-hand text-xl tracking-widest text-center"
             placeholder="••••" maxLength={4} type="password" inputMode="numeric"
             value={form.pin}
             onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, '') }))}
             required />
-          <p className="font-hand text-base text-sky-400 text-center mt-1">
+          <p className="font-hand text-2xl text-sky-400 text-center mt-1">
             First time? Pick any 4 digits — remember them for next time!
           </p>
         </div>
