@@ -4,7 +4,7 @@ load_dotenv()
 import os
 from datetime import datetime, timedelta, timezone
 
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_from_directory
 from flask_socketio import SocketIO, emit
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
@@ -21,20 +21,6 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 with app.app_context():
     database.init_db()
-
-# ─────────────────────────────────────────────
-#  SERVE REACT APP
-# ─────────────────────────────────────────────
-
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve_react(path):
-    if path.startswith('api/'):
-        return jsonify({'error': 'Not found'}), 404
-    full_path = os.path.join(app.static_folder, path)
-    if path and os.path.exists(full_path):
-        return send_from_directory(app.static_folder, path)
-    return send_from_directory(app.static_folder, 'index.html')
 
 # ─────────────────────────────────────────────
 #  JWT HELPERS
@@ -382,7 +368,22 @@ def handle_leave(data):
     }, broadcast=True)
 
 
-if __name__ == '__main__':
+# ─────────────────────────────────────────────
+#  SERVE REACT — must be last, catches all non-API routes
+# ─────────────────────────────────────────────
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_react(path):
+    if path.startswith('api/'):
+        return jsonify({'error': 'Not found'}), 404
+    static_folder = app.static_folder or 'static/app'
+    full_path = os.path.join(static_folder, path)
+    if path and os.path.exists(full_path):
+        return send_from_directory(static_folder, path)
+    return send_from_directory(static_folder, 'index.html')
+
+if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
     socketio.run(app, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
 else:

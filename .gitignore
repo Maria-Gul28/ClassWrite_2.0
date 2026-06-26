@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 *.pyo
 backend/node_modules/
-backend/dist/
 backend/__pycache__/
 backend/*.pyc
 frontend/node_modules/

@@ -452,14 +452,21 @@ def get_student_work_by_class(class_id):
         cur.close()
     result = {}
     for row in rows:
-        key = f"{row[2]}_{row[3]}"  # student_name_assignment_id
+        # Columns: id, student_id, student_name, assignment_id, class_id, content, last_updated, status
+        student_name  = row[2] if len(row) > 7 else row[1]
+        assignment_id = row[3] if len(row) > 7 else row[2]
+        class_id      = row[4] if len(row) > 7 else row[3]
+        content       = row[5] if len(row) > 7 else row[4]
+        last_updated  = row[6] if len(row) > 7 else row[5]
+        status        = row[7] if len(row) > 7 else row[6]
+        key = f"{student_name}_{assignment_id}"
         result[key] = {
-            'student_name': row[2],
-            'assignment_id': row[3],
-            'class_id': row[4],
-            'content': str(row[5] or ''),
-            'last_updated': _dt(row[6]),
-            'status': row[7]
+            'student_name':  student_name,
+            'assignment_id': assignment_id,
+            'class_id':      class_id,
+            'content':       str(content or ''),
+            'last_updated':  _dt(last_updated),
+            'status':        status
         }
     return result
 
