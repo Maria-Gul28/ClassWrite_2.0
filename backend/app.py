@@ -381,8 +381,7 @@ def serve_react(path):
     full_path = os.path.join(static_dir, path)
     if path and os.path.exists(full_path) and os.path.isfile(full_path):
         return send_from_directory(static_dir, path)
-    with open(os.path.join(static_dir, 'index.html'), 'rb') as f:
-        return f.read(), 200, {'Content-Type': 'text/html'}
+    return send_from_directory(static_dir, 'index.html')
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
