@@ -377,11 +377,11 @@ def handle_leave(data):
 def serve_react(path):
     if path.startswith('api/'):
         return jsonify({'error': 'Not found'}), 404
-    static_folder = app.static_folder or 'static/app'
-    full_path = os.path.join(static_folder, path)
-    if path and os.path.exists(full_path):
-        return send_from_directory(static_folder, path)
-    return send_from_directory(static_folder, 'index.html')
+    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'app')
+    full_path = os.path.join(static_dir, path)
+    if path and os.path.exists(full_path) and os.path.isfile(full_path):
+        return send_from_directory(static_dir, path)
+    return send_from_directory(static_dir, 'index.html')
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
