@@ -378,10 +378,17 @@ def serve_react(path):
     if path.startswith('api/'):
         return jsonify({'error': 'Not found'}), 404
     static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'app')
-    full_path = os.path.join(static_dir, path)
-    if path and os.path.exists(full_path) and os.path.isfile(full_path):
-        return send_from_directory(static_dir, path)
-    return send_from_directory(static_dir, 'index.html')
+    # Serve actual static files (js, css, images)
+    if path:
+        full_path = os.path.join(static_dir, path)
+        if os.path.exists(full_path) and os.path.isfile(full_path):
+            with open(full_path, 'rb') as f:
+                import mimetypes
+                mime = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
+                return f.read(), 200, {'Content-Type': mime}
+    # Always serve index.html for all other routes (React Router handles it)
+    with open(os.path.join(static_dir, 'index.html'), 'rb') as f:
+        return f.read(), 200, {'Content-Type': 'text/html; charset=utf-8'}
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
