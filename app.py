@@ -335,59 +335,40 @@ def http_update_progress():
 #  SOCKET.IO
 # ─────────────────────────────────────────────
 
-@socketio.on('join_room')
-def handle_join_room(data):
-    """Teacher or student joins a class room to receive updates for that class."""
-    from flask_socketio import join_room
-    room = f"class_{data.get('class_id')}"
-    join_room(room)
-    emit('room_joined', {'room': room})
-
-
 @socketio.on('update_progress')
 def handle_progress(data):
-    class_id = data.get('class_id')
     database.save_student_work(
         data.get('student_id'), data.get('student_name'),
-        data.get('assignment_id'), class_id, data.get('content', '')
+        data.get('assignment_id'), data.get('class_id'), data.get('content', '')
     )
-    payload = {
+    emit('progress_update', {
         'student_name':  data.get('student_name'),
         'assignment_id': data.get('assignment_id'),
-        'class_id':      class_id,
+        'class_id':      data.get('class_id'),
         'content':       data.get('content', ''),
         'last_updated':  datetime.now().isoformat()
-    }
-    # Emit to the class room so only that class's teacher sees it
-    room = f"class_{class_id}"
-    socketio.emit('progress_update', payload, room=room)
+    }, broadcast=True)
 
 
 @socketio.on('join_assignment')
 def handle_join(data):
-    class_id = data.get('class_id')
-    payload = {
+    emit('student_joined', {
         'student_name':  data.get('student_name'),
         'assignment_id': data.get('assignment_id'),
-        'class_id':      class_id,
+        'class_id':      data.get('class_id'),
         'timestamp':     datetime.now().isoformat()
-    }
-    room = f"class_{class_id}"
-    socketio.emit('student_joined', payload, room=room)
+    }, broadcast=True)
 
 
 @socketio.on('leave_assignment')
 def handle_leave(data):
-    class_id = data.get('class_id')
     database.delete_student_work(data.get('student_id'), data.get('assignment_id'))
-    payload = {
+    emit('student_left', {
         'student_name':  data.get('student_name'),
         'assignment_id': data.get('assignment_id'),
-        'class_id':      class_id,
+        'class_id':      data.get('class_id'),
         'timestamp':     datetime.now().isoformat()
-    }
-    room = f"class_{class_id}"
-    socketio.emit('student_left', payload, room=room)
+    }, broadcast=True)
 
 
 # ─────────────────────────────────────────────
