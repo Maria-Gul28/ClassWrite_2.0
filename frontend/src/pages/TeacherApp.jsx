@@ -824,7 +824,10 @@ function LivePage({ liveWork, assignments }) {
               {active.student_name}
             </span>
             <span className="font-hand text-xs text-sky-300">
-              Updated {new Date(active.last_updated).toLocaleTimeString()}
+              {(() => {
+                const d = new Date(active.last_updated)
+                return isNaN(d.getTime()) ? '' : `Updated ${d.toLocaleTimeString()}`
+              })()}
             </span>
           </div>
           <div className="bg-sky-50 rounded-xl px-5 py-4 font-serif text-sm text-ink-800 leading-relaxed

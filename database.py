@@ -452,24 +452,25 @@ def save_student_work(student_id, student_name, assignment_id, class_id, content
 
 def get_student_work_by_class(class_id):
     with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute('SELECT * FROM student_work WHERE class_id=%s ORDER BY last_updated DESC', (class_id,))
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            'SELECT * FROM student_work WHERE class_id=%s ORDER BY last_updated DESC',
+            (class_id,)
+        )
         rows = cur.fetchall()
         cur.close()
     result = {}
     for row in rows:
-        # Columns: id, student_id, student_name, assignment_id, class_id, content, last_updated, status
-        student_name  = row[2] if len(row) > 7 else row[1]
-        assignment_id = row[3] if len(row) > 7 else row[2]
-        class_id      = row[4] if len(row) > 7 else row[3]
-        content       = row[5] if len(row) > 7 else row[4]
-        last_updated  = row[6] if len(row) > 7 else row[5]
-        status        = row[7] if len(row) > 7 else row[6]
+        student_name  = row['student_name']
+        assignment_id = row['assignment_id']
+        content       = row['content']
+        last_updated  = row['last_updated']
+        status        = row['status']
         key = f"{student_name}_{assignment_id}"
         result[key] = {
             'student_name':  student_name,
             'assignment_id': assignment_id,
-            'class_id':      class_id,
+            'class_id':      row['class_id'],
             'content':       str(content or ''),
             'last_updated':  _dt(last_updated),
             'status':        status
