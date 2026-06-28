@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
@@ -479,8 +479,6 @@ function ClassPage({ cls, classPage, setClassPage, assignments, submissions, liv
     Object.entries(liveWork).filter(([, w]) => w.class_id === cls.id)
   )
 
-  const liveCount = Object.keys(classLiveWork).length
-
   return (
     <div>
       {/* Breadcrumb */}
@@ -488,11 +486,10 @@ function ClassPage({ cls, classPage, setClassPage, assignments, submissions, liv
         ← All classes
       </button>
 
-      {/* Class header card */}
-      <div className="card-doodle px-8 py-6 mb-6 flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-2">
         <div>
-          <h1 className="font-hand text-4xl text-ink-900">{cls.name}</h1>
-          <div className="flex items-center gap-3 mt-2">
+          <h1 className="page-title">{cls.name}</h1>
+          <div className="flex items-center gap-3 mt-3">
             <span className="badge">{cls.grade}</span>
             <span className="font-hand text-sm text-sky-400">Code:</span>
             <span className="class-code text-sm tracking-[0.25em]">{cls.class_code}</span>
@@ -501,30 +498,14 @@ function ClassPage({ cls, classPage, setClassPage, assignments, submissions, liv
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-1 mb-6 bg-sky-50 border-2 border-sky-100 rounded-2xl p-1 w-fit">
-        {classTabs.map(t => {
-          const isActive = classPage === t
-          const label = t === 'live'
-            ? <span className="flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-full ${liveCount > 0 ? 'bg-green-400 animate-pulse' : 'bg-sky-300'}`} />
-                Live
-                {liveCount > 0 && (
-                  <span className="bg-green-400 text-white text-xs font-hand rounded-full px-1.5 py-0.5 leading-none">
-                    {liveCount}
-                  </span>
-                )}
-              </span>
-            : t.charAt(0).toUpperCase() + t.slice(1)
-          return (
-            <button key={t} onClick={() => setClassPage(t)}
-              className={`font-hand text-base px-5 py-2 rounded-xl capitalize transition-all duration-150
-                ${isActive
-                  ? 'bg-white text-sky-500 shadow-sm border border-sky-200'
-                  : 'text-sky-400 hover:text-sky-500 hover:bg-white/60'}`}>
-              {label}
-            </button>
-          )
-        })}
+      <div className="flex gap-2 mt-8 mb-6 border-b-2 border-sky-100 pb-2">
+        {classTabs.map(t => (
+          <button key={t} onClick={() => setClassPage(t)}
+            className={`font-hand text-lg px-4 py-1.5 rounded-t-xl capitalize transition-colors
+              ${classPage === t ? 'bg-sky-400 text-white' : 'text-sky-400 hover:text-sky-500 hover:bg-sky-50'}`}>
+            {t === 'live' ? '⬤ Live' : t.charAt(0).toUpperCase() + t.slice(1)}
+          </button>
+        ))}
       </div>
 
       {classPage === 'assignments' && (
@@ -789,13 +770,36 @@ function AssignmentForm({ classId, existing, onSaved, onCancel }) {
 
 // ── Global Live page ──────────────────────────────────────────
 function LivePage({ liveWork, assignments }) {
-  const [activeKey, setActiveKey] = useState(null)
+  const [activeKey,   setActiveKey]   = useState(null)
+  const [flash,       setFlash]       = useState({})   // key → true when content just changed
+  const [justUpdated, setJustUpdated] = useState(false) // for the active card glow
+  const prevLiveWork  = useRef({})
   const entries = Object.values(liveWork)
 
+  // Auto-select first student
   useEffect(() => {
     if (entries.length && (!activeKey || !liveWork[activeKey])) {
       setActiveKey(Object.keys(liveWork)[0])
     }
+  }, [liveWork])
+
+  // Detect content changes → trigger flash on changed student tabs
+  useEffect(() => {
+    const newFlash = {}
+    Object.entries(liveWork).forEach(([key, w]) => {
+      const prev = prevLiveWork.current[key]
+      if (prev && prev.content !== w.content) {
+        newFlash[key] = true
+        // If it's the active student, glow the card
+        if (key === activeKey) setJustUpdated(true)
+      }
+    })
+    if (Object.keys(newFlash).length) {
+      setFlash(f => ({ ...f, ...newFlash }))
+      setTimeout(() => setFlash({}), 1200)
+    }
+    if (justUpdated) setTimeout(() => setJustUpdated(false), 1200)
+    prevLiveWork.current = liveWork
   }, [liveWork])
 
   if (entries.length === 0) return (
@@ -810,6 +814,9 @@ function LivePage({ liveWork, assignments }) {
   const wordCount = (active?.content || '').trim().split(/\s+/).filter(Boolean).length
   const charCount = (active?.content || '').length
 
+  const d = active?.last_updated ? new Date(active.last_updated) : null
+  const timeStr = d && !isNaN(d.getTime()) ? d.toLocaleTimeString() : null
+
   return (
     <div>
       <h1 className="page-title mb-2">⬤ Live Progress</h1>
@@ -822,12 +829,21 @@ function LivePage({ liveWork, assignments }) {
         {entries.map(w => {
           const key = `${w.student_name}_${w.assignment_id}`
           const wc  = (w.content || '').trim().split(/\s+/).filter(Boolean).length
-          const isActive = key === activeKey
+          const isActive  = key === activeKey
+          const isFlashing = flash[key]
           return (
             <button key={key} onClick={() => setActiveKey(key)}
-              className={`font-hand text-base px-4 py-1.5 rounded-full border-2 transition-colors flex items-center gap-2
-                ${isActive ? 'bg-sky-400 text-white border-sky-400' : 'border-sky-200 text-ink-800 hover:border-sky-400'}`}>
-              <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
+              style={{
+                transition: 'background 0.3s, border-color 0.3s, box-shadow 0.3s',
+                boxShadow: isFlashing ? '0 0 0 3px rgba(74,222,128,0.5)' : undefined
+              }}
+              className={`font-hand text-base px-4 py-1.5 rounded-full border-2 flex items-center gap-2
+                ${isActive
+                  ? 'bg-sky-400 text-white border-sky-400'
+                  : isFlashing
+                    ? 'border-green-400 text-ink-800 bg-green-50'
+                    : 'border-sky-200 text-ink-800 hover:border-sky-400'}`}>
+              <span className="w-2 h-2 rounded-full bg-green-400 inline-block animate-pulse" />
               {w.student_name}
               <span className={`text-xs ${isActive ? 'text-sky-100' : 'text-sky-400'}`}>{wc}w</span>
             </button>
@@ -836,22 +852,37 @@ function LivePage({ liveWork, assignments }) {
       </div>
 
       {active && (
-        <div className="card-doodle p-6">
+        <div className="card-doodle p-6"
+          style={{
+            transition: 'box-shadow 0.4s, border-color 0.4s',
+            borderColor: justUpdated ? '#4ade80' : undefined,
+            boxShadow:   justUpdated ? '0 0 0 3px rgba(74,222,128,0.25), 3px 4px 0 rgba(46,157,209,0.2)' : undefined
+          }}>
           <div className="flex justify-between items-center mb-3">
             <span className="font-hand text-xl text-ink-900 flex items-center gap-2">
               <img src="/assets/student.svg" alt="" className="w-5 h-5 object-contain" />
               {active.student_name}
             </span>
-            <span className="font-hand text-xs text-sky-300">
-              Updated {new Date(active.last_updated).toLocaleTimeString()}
+            <span className="font-hand text-xs flex items-center gap-1.5"
+                  style={{ color: justUpdated ? '#4ade80' : undefined, transition: 'color 0.4s' }}>
+              {justUpdated && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-ping inline-block" />}
+              {timeStr ? `Updated ${timeStr}` : ''}
             </span>
           </div>
-          <div className="bg-sky-50 rounded-xl px-5 py-4 font-serif text-sm text-ink-800 leading-relaxed
+
+          {/* Writing area — content transitions smoothly */}
+          <div className="rounded-xl px-5 py-4 font-serif text-sm text-ink-800 leading-relaxed
                           whitespace-pre-wrap min-h-[120px]"
-               style={{ backgroundImage: 'repeating-linear-gradient(transparent,transparent 27px,rgba(46,157,209,0.08) 28px)' }}>
+               style={{
+                 backgroundImage: 'repeating-linear-gradient(transparent,transparent 27px,rgba(46,157,209,0.08) 28px)',
+                 backgroundColor: justUpdated ? 'rgba(240,253,244,0.8)' : '#eef4fb',
+                 transition: 'background-color 0.6s ease'
+               }}>
             {active.content || <span className="text-sky-300 italic">Nothing written yet…</span>}
           </div>
-          <p className="font-hand text-xs text-sky-400 mt-2">
+
+          <p className="font-hand text-xs text-sky-400 mt-2"
+             style={{ transition: 'all 0.3s' }}>
             {wordCount} word{wordCount !== 1 ? 's' : ''} · {charCount} character{charCount !== 1 ? 's' : ''}
           </p>
         </div>
