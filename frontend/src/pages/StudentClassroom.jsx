@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import TopBar from '../components/TopBar'
 import api from '../utils/api'
-import { getSocket } from '../utils/socket'
 
 export default function StudentClassroom() {
   const { cls } = useAuth()
@@ -173,7 +172,7 @@ function AssignmentList({ assignments, submittedIds, onOpen }) {
 
 // ── Writing view ──────────────────────────────────────────────
 function WritingView({ assignment, isSubmitted, onBack, onSubmitted }) {
-  const { user, cls } = useAuth()
+  const { cls } = useAuth()
   const [content,   setContent]   = useState('')
   const [saving,    setSaving]    = useState(false)
   const [saved,     setSaved]     = useState(true)
@@ -181,28 +180,19 @@ function WritingView({ assignment, isSubmitted, onBack, onSubmitted }) {
   const [busy,      setBusy]      = useState(false)
   const [slide,     setSlide]     = useState(0)
   const images = assignment.images || []
-  const saveTimer = useRef(null)
 
   useEffect(() => {
     if (!content && saved) return
     setSaved(false)
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => {
+    const t = setTimeout(() => {
       setSaving(true)
-      // Emit via socket for instant teacher view
-      getSocket().emit('update_progress', {
-        student_id:    user?.id,
-        student_name:  user?.name,
+      api.post('/update_progress', {
         assignment_id: assignment.id,
-        class_id:      cls?.id,
-        content,
-      })
-      // Also persist to DB via HTTP as backup
-      api.post('/update_progress', { assignment_id: assignment.id, class_id: cls?.id, content })
-        .catch(() => {})
-        .finally(() => { setSaving(false); setSaved(true) })
+        class_id: cls?.id,
+        content
+      }).catch(() => {}).finally(() => { setSaving(false); setSaved(true) })
     }, 800)
-    return () => clearTimeout(saveTimer.current)
+    return () => clearTimeout(t)
   }, [content])
 
   async function handleSubmit() {
