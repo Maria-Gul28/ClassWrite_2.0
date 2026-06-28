@@ -236,7 +236,7 @@ export default function TeacherApp() {
               )}
 
               {page === 'live' && !selectedClass && (
-                <LivePage liveWork={liveWork} assignments={assignments} classes={classes} />
+                <LivePage liveWork={liveWork} assignments={assignments} classes={classes} onPoll={pollLive} />
               )}
 
               {page === 'submissions' && !selectedClass && (
@@ -254,6 +254,7 @@ export default function TeacherApp() {
                   onBack={() => { setSelectedClass(null); setPage('classes') }}
                   onAssignmentsChange={() => reloadClassAssignments(selectedClass.id)}
                   onSubmissionsChange={() => reloadClassSubmissions(selectedClass.id)}
+                  onPoll={pollLive}
                 />
               )}
             </>
@@ -501,7 +502,7 @@ function ClassCard({ cls, subCount, onOpen, onCopy, onDelete }) {
 }
 
 // ── Class detail page (inside sidebar shell) ──────────────────
-function ClassPage({ cls, classPage, setClassPage, assignments, submissions, liveWork, onBack, onAssignmentsChange }) {
+function ClassPage({ cls, classPage, setClassPage, assignments, submissions, liveWork, onBack, onAssignmentsChange, onPoll }) {
   const classTabs = ['assignments', 'live', 'submissions']
   const classLiveWork = Object.fromEntries(
     Object.entries(liveWork).filter(([, w]) => w.class_id === cls.id)
@@ -540,7 +541,7 @@ function ClassPage({ cls, classPage, setClassPage, assignments, submissions, liv
         <AssignmentsTab classId={cls.id} assignments={assignments} onChanged={onAssignmentsChange} />
       )}
       {classPage === 'live' && (
-        <LiveTab liveWork={classLiveWork} assignments={assignments} classes={[cls]} />
+        <LiveTab liveWork={classLiveWork} assignments={assignments} classes={[cls]} onPoll={onPoll} />
       )}
       {classPage === 'submissions' && (
         <SubmissionsTab submissions={submissions} assignments={assignments} />
@@ -828,7 +829,7 @@ function DiffedText({ oldText, newText }) {
   )
 }
 
-function LivePage({ liveWork, assignments, classes }) {
+function LivePage({ liveWork, assignments, classes, onPoll }) {
   const [activeKey,  setActiveKey]  = useState(null)
   const [snapshots,  setSnapshots]  = useState({}) // content at last "Check Progress"
   const [checking,   setChecking]   = useState(false)
@@ -844,28 +845,17 @@ function LivePage({ liveWork, assignments, classes }) {
   async function checkProgress() {
     setChecking(true)
     try {
-      // Fetch fresh live data for all classes
-      const cls_list = classes || []
-      let freshWork = {}
-      if (cls_list.length) {
-        const results = await Promise.all(
-          cls_list.map(c => api.get(`/classes/${c.id}/live`).then(r => r.data).catch(() => ({})))
-        )
-        freshWork = Object.assign({}, ...results)
-      } else {
-        // fallback: use current liveWork content as fresh
-        freshWork = liveWork
-      }
-
-      // Snapshot = what was shown before this check (current liveWork)
-      // After check, liveWork will be updated externally via pollLive,
-      // but we set snapshots NOW so we can diff against what was shown before.
+      // 1. Snapshot what's currently visible BEFORE fetching fresh data
       const newSnapshots = {}
-      Object.keys(freshWork).forEach(key => {
+      Object.keys(liveWork).forEach(key => {
         newSnapshots[key] = liveWork[key]?.content || ''
       })
       setSnapshots(newSnapshots)
       setCheckedAt(new Date())
+
+      // 2. Now fetch fresh data — liveWork in parent will update via setState,
+      //    triggering a re-render with new content diffed against the snapshots above
+      if (onPoll) await onPoll(classes)
     } finally {
       setChecking(false)
     }
@@ -998,8 +988,8 @@ function LivePage({ liveWork, assignments, classes }) {
 }
 
 // ── Live tab (inside class) ───────────────────────────────────
-function LiveTab({ liveWork, assignments, classes }) {
-  return <LivePage liveWork={liveWork} assignments={assignments} classes={classes} />
+function LiveTab({ liveWork, assignments, classes, onPoll }) {
+  return <LivePage liveWork={liveWork} assignments={assignments} classes={classes} onPoll={onPoll} />
 }
 
 // ── Global Submissions page ───────────────────────────────────
