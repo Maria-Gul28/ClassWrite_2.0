@@ -27,7 +27,7 @@ COPY app.py .
 COPY database.py .
 
 # Move built frontend to where Flask expects it
-RUN mv frontend/dist static/app
+RUN mkdir -p static/app && mv frontend/dist/* static/app/
 
 EXPOSE 8080
 
