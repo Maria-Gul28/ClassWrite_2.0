@@ -479,6 +479,8 @@ function ClassPage({ cls, classPage, setClassPage, assignments, submissions, liv
     Object.entries(liveWork).filter(([, w]) => w.class_id === cls.id)
   )
 
+  const liveCount = Object.keys(classLiveWork).length
+
   return (
     <div>
       {/* Breadcrumb */}
@@ -486,10 +488,11 @@ function ClassPage({ cls, classPage, setClassPage, assignments, submissions, liv
         ← All classes
       </button>
 
-      <div className="flex items-start justify-between gap-4 flex-wrap mb-2">
+      {/* Class header card */}
+      <div className="card-doodle px-8 py-6 mb-6 flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="page-title">{cls.name}</h1>
-          <div className="flex items-center gap-3 mt-3">
+          <h1 className="font-hand text-4xl text-ink-900">{cls.name}</h1>
+          <div className="flex items-center gap-3 mt-2">
             <span className="badge">{cls.grade}</span>
             <span className="font-hand text-sm text-sky-400">Code:</span>
             <span className="class-code text-sm tracking-[0.25em]">{cls.class_code}</span>
@@ -498,14 +501,30 @@ function ClassPage({ cls, classPage, setClassPage, assignments, submissions, liv
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-2 mt-8 mb-6 border-b-2 border-sky-100 pb-2">
-        {classTabs.map(t => (
-          <button key={t} onClick={() => setClassPage(t)}
-            className={`font-hand text-lg px-4 py-1.5 rounded-t-xl capitalize transition-colors
-              ${classPage === t ? 'bg-sky-400 text-white' : 'text-sky-400 hover:text-sky-500 hover:bg-sky-50'}`}>
-            {t === 'live' ? '⬤ Live' : t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
+      <div className="flex gap-1 mb-6 bg-sky-50 border-2 border-sky-100 rounded-2xl p-1 w-fit">
+        {classTabs.map(t => {
+          const isActive = classPage === t
+          const label = t === 'live'
+            ? <span className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${liveCount > 0 ? 'bg-green-400 animate-pulse' : 'bg-sky-300'}`} />
+                Live
+                {liveCount > 0 && (
+                  <span className="bg-green-400 text-white text-xs font-hand rounded-full px-1.5 py-0.5 leading-none">
+                    {liveCount}
+                  </span>
+                )}
+              </span>
+            : t.charAt(0).toUpperCase() + t.slice(1)
+          return (
+            <button key={t} onClick={() => setClassPage(t)}
+              className={`font-hand text-base px-5 py-2 rounded-xl capitalize transition-all duration-150
+                ${isActive
+                  ? 'bg-white text-sky-500 shadow-sm border border-sky-200'
+                  : 'text-sky-400 hover:text-sky-500 hover:bg-white/60'}`}>
+              {label}
+            </button>
+          )
+        })}
       </div>
 
       {classPage === 'assignments' && (
@@ -824,10 +843,7 @@ function LivePage({ liveWork, assignments }) {
               {active.student_name}
             </span>
             <span className="font-hand text-xs text-sky-300">
-              {(() => {
-                const d = new Date(active.last_updated)
-                return isNaN(d.getTime()) ? '' : `Updated ${d.toLocaleTimeString()}`
-              })()}
+              Updated {new Date(active.last_updated).toLocaleTimeString()}
             </span>
           </div>
           <div className="bg-sky-50 rounded-xl px-5 py-4 font-serif text-sm text-ink-800 leading-relaxed
