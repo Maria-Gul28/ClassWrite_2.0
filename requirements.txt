@@ -8,5 +8,3 @@ psycopg2-binary==2.9.9
 python-dotenv==1.0.0
 eventlet==0.33.3
 gunicorn==21.2.0
-gevent
-gevent-websocket

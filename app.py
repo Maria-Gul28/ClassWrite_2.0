@@ -1,5 +1,5 @@
-from gevent import monkey
-monkey.patch_all()
+import eventlet
+eventlet.monkey_patch()
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -20,7 +20,7 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 bcrypt = Bcrypt(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 with app.app_context():
     database.init_db()
