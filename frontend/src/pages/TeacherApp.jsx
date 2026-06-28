@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
-import { getSocket, joinClassRoom } from '../utils/socket'
+import { getSocket } from '../utils/socket'
 
 const GRADES = ['1st Grade','2nd Grade','3rd Grade','4th Grade','5th Grade',
                 '6th Grade','7th Grade','8th Grade','9th Grade','10th Grade',
@@ -25,14 +25,12 @@ export default function TeacherApp() {
   const [selectedClass, setSelectedClass] = useState(null) // class object
   const [classPage,     setClassPage]     = useState('assignments') // when inside a class
 
-  // Load everything on mount, then wire up socket
   useEffect(() => {
     loadAll()
 
     const socket = getSocket()
 
     socket.on('progress_update', (data) => {
-      console.log('[teacher] progress_update received:', data.student_name, data.content?.slice(0, 30))
       const key = `${data.student_name}_${data.assignment_id}`
       setLiveWork(prev => ({
         ...prev,
@@ -49,14 +47,10 @@ export default function TeacherApp() {
 
     socket.on('student_left', (data) => {
       const key = `${data.student_name}_${data.assignment_id}`
-      setLiveWork(prev => {
-        const next = { ...prev }
-        delete next[key]
-        return next
-      })
+      setLiveWork(prev => { const n = { ...prev }; delete n[key]; return n })
     })
 
-    // Fallback poll every 15s
+    // Fallback poll every 15s in case a socket event is missed
     const interval = setInterval(pollLive, 15000)
 
     return () => {
@@ -71,8 +65,6 @@ export default function TeacherApp() {
       const res = await api.get('/classes')
       const cls = res.data
       setClasses(cls)
-      // Join socket room for each class so teacher gets real-time updates
-      cls.forEach(c => joinClassRoom(c.id))
       // Load assignments + submissions for all classes
       const [aResults, sResults] = await Promise.all([
         Promise.all(cls.map(c => api.get(`/classes/${c.id}/assignments`).then(r => r.data).catch(() => []))),
@@ -80,6 +72,7 @@ export default function TeacherApp() {
       ])
       setAssignments(aResults.flat())
       setSubmissions(sResults.flat())
+      // Live work from first class if any
       if (cls.length) pollLive(cls)
     } catch (e) {
       console.error(e)

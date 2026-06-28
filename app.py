@@ -1,5 +1,5 @@
-import eventlet
-eventlet.monkey_patch()
+from gevent import monkey
+monkey.patch_all()
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -20,7 +20,7 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 bcrypt = Bcrypt(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', logger=True, engineio_logger=True)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 with app.app_context():
     database.init_db()
@@ -335,68 +335,40 @@ def http_update_progress():
 #  SOCKET.IO
 # ─────────────────────────────────────────────
 
-@socketio.on('connect')
-def handle_connect():
-    print(f'Client connected: {request.sid}')
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    print(f'Client disconnected: {request.sid}')
-
-@socketio.on('join_class_room')
-def handle_join_room(data):
-    """Teacher joins a room to watch a class."""
-    from flask_socketio import join_room
-    room = f"class_{data.get('class_id')}"
-    join_room(room)
-    print(f'Client {request.sid} joined room {room}')
-
 @socketio.on('update_progress')
 def handle_progress(data):
     database.save_student_work(
         data.get('student_id'), data.get('student_name'),
         data.get('assignment_id'), data.get('class_id'), data.get('content', '')
     )
-    payload = {
+    emit('progress_update', {
         'student_name':  data.get('student_name'),
         'assignment_id': data.get('assignment_id'),
         'class_id':      data.get('class_id'),
         'content':       data.get('content', ''),
         'last_updated':  datetime.now().isoformat()
-    }
-    # Broadcast to everyone (teacher dashboard listening globally)
-    emit('progress_update', payload, broadcast=True)
-    # Also emit to the class-specific room
-    room = f"class_{data.get('class_id')}"
-    emit('progress_update', payload, room=room, include_self=False)
-    print(f"progress_update emitted for {data.get('student_name')} in class {data.get('class_id')}")
+    }, broadcast=True)
 
 
 @socketio.on('join_assignment')
 def handle_join(data):
-    payload = {
+    emit('student_joined', {
         'student_name':  data.get('student_name'),
         'assignment_id': data.get('assignment_id'),
         'class_id':      data.get('class_id'),
         'timestamp':     datetime.now().isoformat()
-    }
-    emit('student_joined', payload, broadcast=True)
-    room = f"class_{data.get('class_id')}"
-    emit('student_joined', payload, room=room, include_self=False)
+    }, broadcast=True)
 
 
 @socketio.on('leave_assignment')
 def handle_leave(data):
     database.delete_student_work(data.get('student_id'), data.get('assignment_id'))
-    payload = {
+    emit('student_left', {
         'student_name':  data.get('student_name'),
         'assignment_id': data.get('assignment_id'),
         'class_id':      data.get('class_id'),
         'timestamp':     datetime.now().isoformat()
-    }
-    emit('student_left', payload, broadcast=True)
-    room = f"class_{data.get('class_id')}"
-    emit('student_left', payload, room=room, include_self=False)
+    }, broadcast=True)
 
 
 # ─────────────────────────────────────────────
