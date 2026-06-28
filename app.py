@@ -15,7 +15,7 @@ import jwt
 
 import database
 
-app = Flask(__name__, static_folder='static/app', static_url_path='')
+app = Flask(__name__, static_folder=None)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -378,18 +378,38 @@ def handle_leave(data):
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_react(path):
-    if path.startswith('api/'):
+    # Let SocketIO and API errors stay as-is
+    if path.startswith('api/') or path.startswith('socket.io'):
         return jsonify({'error': 'Not found'}), 404
+
+    import mimetypes
     static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'app')
+    index_path = os.path.join(static_dir, 'index.html')
+
+    # Serve real static assets (JS, CSS, images, fonts…)
     if path:
         full_path = os.path.join(static_dir, path)
-        if os.path.exists(full_path) and os.path.isfile(full_path):
-            import mimetypes
-            mime = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
-            with open(full_path, 'rb') as f:
-                return app.response_class(f.read(), mimetype=mime)
-    with open(os.path.join(static_dir, 'index.html'), 'rb') as f:
-        return app.response_class(f.read(), mimetype='text/html')
+        # Guard against path traversal
+        try:
+            if os.path.commonpath([os.path.realpath(full_path), os.path.realpath(static_dir)]) == os.path.realpath(static_dir):
+                if os.path.isfile(full_path):
+                    mime = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
+                    with open(full_path, 'rb') as f:
+                        return app.response_class(f.read(), mimetype=mime)
+        except (ValueError, OSError):
+            pass
+
+    # All client-side routes (/dashboard, /classroom, etc.) → return index.html
+    # so React Router handles them.
+    if not os.path.isfile(index_path):
+        return jsonify({'error': 'Frontend not built — run: npm run build'}), 500
+
+    with open(index_path, 'rb') as f:
+        return app.response_class(
+            f.read(),
+            mimetype='text/html',
+            headers={'Cache-Control': 'no-cache, no-store, must-revalidate'}
+        )
 
 if __name__ == "__main__":
     from gevent import pywsgi
