@@ -30,7 +30,8 @@ export default function TeacherApp() {
 
     const socket = getSocket()
 
-    socket.on('progress_update', (data) => {
+    // Named handlers so we can remove exactly these, not all listeners
+    function onProgress(data) {
       const key = `${data.student_name}_${data.assignment_id}`
       setLiveWork(prev => ({
         ...prev,
@@ -39,23 +40,47 @@ export default function TeacherApp() {
           assignment_id: data.assignment_id,
           class_id:      data.class_id,
           content:       data.content,
-          last_updated:  data.last_updated,
+          last_updated:  data.last_updated || new Date().toISOString(),
           status:        'in_progress',
         }
       }))
-    })
+    }
 
-    socket.on('student_left', (data) => {
+    function onStudentJoined(data) {
+      // Ensure the student appears in liveWork immediately (content may be empty)
+      const key = `${data.student_name}_${data.assignment_id}`
+      setLiveWork(prev => {
+        if (prev[key]) return prev   // already tracked
+        return {
+          ...prev,
+          [key]: {
+            student_name:  data.student_name,
+            assignment_id: data.assignment_id,
+            class_id:      data.class_id,
+            content:       '',
+            last_updated:  data.timestamp || new Date().toISOString(),
+            status:        'in_progress',
+          }
+        }
+      })
+    }
+
+    function onStudentLeft(data) {
       const key = `${data.student_name}_${data.assignment_id}`
       setLiveWork(prev => { const n = { ...prev }; delete n[key]; return n })
-    })
+    }
+
+    socket.on('progress_update',  onProgress)
+    socket.on('student_joined',   onStudentJoined)
+    socket.on('student_left',     onStudentLeft)
 
     // Fallback poll every 15s in case a socket event is missed
     const interval = setInterval(pollLive, 15000)
 
     return () => {
-      socket.off('progress_update')
-      socket.off('student_left')
+      socket.off('progress_update',  onProgress)
+      socket.off('student_joined',   onStudentJoined)
+      socket.off('student_left',     onStudentLeft)
       clearInterval(interval)
     }
   }, [])

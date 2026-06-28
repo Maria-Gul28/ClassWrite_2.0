@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import TopBar from '../components/TopBar'
 import api from '../utils/api'
+import { getSocket, disconnectSocket } from '../utils/socket'
 
 export default function StudentClassroom() {
-  const { cls } = useAuth()
+  const { cls, user } = useAuth()
   const location = useLocation()
   const isReturning = location.state?.returning
 
@@ -172,7 +173,7 @@ function AssignmentList({ assignments, submittedIds, onOpen }) {
 
 // ── Writing view ──────────────────────────────────────────────
 function WritingView({ assignment, isSubmitted, onBack, onSubmitted }) {
-  const { cls } = useAuth()
+  const { cls, user } = useAuth()
   const [content,   setContent]   = useState('')
   const [saving,    setSaving]    = useState(false)
   const [saved,     setSaved]     = useState(true)
@@ -181,19 +182,49 @@ function WritingView({ assignment, isSubmitted, onBack, onSubmitted }) {
   const [slide,     setSlide]     = useState(0)
   const images = assignment.images || []
 
+  // Emit via socket in real-time, debounced to 600ms
   useEffect(() => {
     if (!content && saved) return
     setSaved(false)
     const t = setTimeout(() => {
       setSaving(true)
+      const socket = getSocket()
+      // Real-time socket emit so teacher sees it instantly
+      socket.emit('update_progress', {
+        student_id:    user?.id,
+        student_name:  user?.name,
+        assignment_id: assignment.id,
+        class_id:      cls?.id,
+        content,
+      })
+      // HTTP fallback — persists to DB in case socket drops
       api.post('/update_progress', {
         assignment_id: assignment.id,
-        class_id: cls?.id,
-        content
+        class_id:      cls?.id,
+        content,
       }).catch(() => {}).finally(() => { setSaving(false); setSaved(true) })
-    }, 800)
+    }, 600)
     return () => clearTimeout(t)
   }, [content])
+
+  // Join and leave assignment via socket so teacher roster updates
+  useEffect(() => {
+    const socket = getSocket()
+    socket.emit('join_assignment', {
+      student_id:    user?.id,
+      student_name:  user?.name,
+      assignment_id: assignment.id,
+      class_id:      cls?.id,
+    })
+    return () => {
+      socket.emit('leave_assignment', {
+        student_id:    user?.id,
+        student_name:  user?.name,
+        assignment_id: assignment.id,
+        class_id:      cls?.id,
+      })
+    }
+  }, [assignment.id])
 
   async function handleSubmit() {
     if (!content.trim()) { alert('Please write something first!'); return }
