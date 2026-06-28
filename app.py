@@ -372,21 +372,41 @@ def handle_leave(data):
 #  SERVE REACT — must be last, catches all non-API routes
 # ─────────────────────────────────────────────
 
+import mimetypes
+
+def _serve_index():
+    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'app')
+    with open(os.path.join(static_dir, 'index.html'), 'rb') as f:
+        return app.response_class(f.read(), mimetype='text/html')
+
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_react(path):
+    # Let Flask-SocketIO handle its own internal paths
+    if path.startswith('socket.io'):
+        from flask import abort
+        abort(404)
+    # Never intercept API routes
     if path.startswith('api/'):
         return jsonify({'error': 'Not found'}), 404
+    # Serve real static files (JS, CSS, images, etc.)
     static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'app')
     if path:
         full_path = os.path.join(static_dir, path)
         if os.path.exists(full_path) and os.path.isfile(full_path):
-            import mimetypes
             mime = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
             with open(full_path, 'rb') as f:
                 return app.response_class(f.read(), mimetype=mime)
-    with open(os.path.join(static_dir, 'index.html'), 'rb') as f:
-        return app.response_class(f.read(), mimetype='text/html')
+    # Everything else (client-side routes like /dashboard, /classroom) → index.html
+    return _serve_index()
+
+@app.errorhandler(404)
+def not_found(e):
+    # If the 404 came from a non-API path, return index.html so React Router handles it
+    from flask import request as req
+    if not req.path.startswith('/api/') and not req.path.startswith('/socket.io'):
+        return _serve_index()
+    return jsonify({'error': 'Not found'}), 404
 
 if __name__ == "__main__":
     from gevent import pywsgi
