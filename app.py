@@ -15,7 +15,9 @@ import jwt
 
 import database
 
-app = Flask(__name__, static_folder='static/app', static_url_path='')
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'app')
+
+app = Flask(__name__, static_folder=STATIC_DIR, static_url_path='/assets')
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -389,38 +391,49 @@ def handle_leave(data):
 
 
 # ─────────────────────────────────────────────
-#  SERVE REACT — must be last, catches all non-API routes
+#  SERVE REACT
+#  Uses explicit named routes instead of a single /<path:path> catch-all,
+#  which conflicts with eventlet's connection handling.
 # ─────────────────────────────────────────────
 
-@app.route('/', defaults={'path': ''})
+def _index():
+    """Return the React app shell for any client-side route."""
+    return send_from_directory(STATIC_DIR, 'index.html')
+
+
+# Root
+@app.route('/')
+def serve_root():
+    return _index()
+
+
+# Every React page route listed explicitly — add new pages here as you build them
+@app.route('/login')
+@app.route('/register')
+@app.route('/join')
+@app.route('/dashboard')
+@app.route('/classroom')
+def serve_react_pages():
+    return _index()
+
+
+# Vite builds assets into an /assets sub-folder
+@app.route('/assets/<path:filename>')
+def serve_vite_assets(filename):
+    return send_from_directory(os.path.join(STATIC_DIR, 'assets'), filename)
+
+
+# Any other static file Vite emits at the root (favicon, manifest, etc.)
 @app.route('/<path:path>')
-def serve_react(path):
-    # Let Socket.IO handle its own transport paths
-    if path.startswith('socket.io'):
+def serve_static_or_index(path):
+    # Never interfere with Socket.IO or API paths that fell through
+    if path.startswith('socket.io') or path.startswith('api/'):
         return jsonify({'error': 'Not found'}), 404
-    # API paths that don't match any route above are genuinely 404
-    if path.startswith('api/'):
-        return jsonify({'error': 'Not found'}), 404
-
-    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'app')
-    index_path = os.path.join(static_dir, 'index.html')
-
-    # Serve real static assets (JS chunks, CSS, images, fonts, etc.)
-    if path:
-        full_path = os.path.join(static_dir, path)
-        if os.path.isfile(full_path):
-            import mimetypes
-            mime = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
-            with open(full_path, 'rb') as f:
-                return app.response_class(f.read(), mimetype=mime)
-
-    # Everything else (React routes like /dashboard, /classroom, /join, etc.)
-    # → return index.html so React Router handles it client-side
-    try:
-        with open(index_path, 'rb') as f:
-            return app.response_class(f.read(), mimetype='text/html')
-    except FileNotFoundError:
-        return jsonify({'error': 'Frontend not built. Run npm run build first.'}), 500
+    full = os.path.join(STATIC_DIR, path)
+    if os.path.isfile(full):
+        return send_from_directory(STATIC_DIR, path)
+    # Unknown path — hand it to React Router
+    return _index()
 
 
 if __name__ == "__main__":
