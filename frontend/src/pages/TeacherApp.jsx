@@ -30,8 +30,7 @@ export default function TeacherApp() {
 
     const socket = getSocket()
 
-    // Named handlers so we can remove exactly these, not all listeners
-    function onProgress(data) {
+    socket.on('progress_update', (data) => {
       const key = `${data.student_name}_${data.assignment_id}`
       setLiveWork(prev => ({
         ...prev,
@@ -40,64 +39,23 @@ export default function TeacherApp() {
           assignment_id: data.assignment_id,
           class_id:      data.class_id,
           content:       data.content,
-          last_updated:  data.last_updated || new Date().toISOString(),
+          last_updated:  data.last_updated,
           status:        'in_progress',
         }
       }))
-    }
+    })
 
-    function onStudentJoined(data) {
-      const key = `${data.student_name}_${data.assignment_id}`
-      setLiveWork(prev => {
-        if (prev[key]) return prev
-        return {
-          ...prev,
-          [key]: {
-            student_name:  data.student_name,
-            assignment_id: data.assignment_id,
-            class_id:      data.class_id,
-            content:       '',
-            last_updated:  data.timestamp || new Date().toISOString(),
-            status:        'in_progress',
-          }
-        }
-      })
-    }
-
-    function onStudentLeft(data) {
+    socket.on('student_left', (data) => {
       const key = `${data.student_name}_${data.assignment_id}`
       setLiveWork(prev => { const n = { ...prev }; delete n[key]; return n })
-    }
-
-    // Join all class rooms so we receive events for our classes.
-    // Re-join on reconnect since rooms are cleared on disconnect.
-    function joinClassRooms() {
-      // classes may not be loaded yet on first connect — we also call this
-      // after loadAll() finishes via the classesRef below.
-      setClasses(current => {
-        current.forEach(cls => {
-          socket.emit('join_room', { class_id: cls.id })
-        })
-        return current
-      })
-    }
-
-    socket.on('connect',          joinClassRooms)
-    socket.on('progress_update',  onProgress)
-    socket.on('student_joined',   onStudentJoined)
-    socket.on('student_left',     onStudentLeft)
-
-    // If already connected when this effect runs, join rooms immediately
-    if (socket.connected) joinClassRooms()
+    })
 
     // Fallback poll every 15s in case a socket event is missed
     const interval = setInterval(pollLive, 15000)
 
     return () => {
-      socket.off('connect',         joinClassRooms)
-      socket.off('progress_update', onProgress)
-      socket.off('student_joined',  onStudentJoined)
-      socket.off('student_left',    onStudentLeft)
+      socket.off('progress_update')
+      socket.off('student_left')
       clearInterval(interval)
     }
   }, [])
@@ -116,11 +74,6 @@ export default function TeacherApp() {
       setSubmissions(sResults.flat())
       // Live work from first class if any
       if (cls.length) pollLive(cls)
-      // Join socket rooms now that we know the class IDs
-      const socket = getSocket()
-      if (socket.connected) {
-        cls.forEach(c => socket.emit('join_room', { class_id: c.id }))
-      }
     } catch (e) {
       console.error(e)
     } finally {
@@ -283,7 +236,7 @@ export default function TeacherApp() {
               )}
 
               {page === 'live' && !selectedClass && (
-                <LivePage liveWork={liveWork} assignments={assignments} />
+                <LivePage liveWork={liveWork} assignments={assignments} classes={classes} />
               )}
 
               {page === 'submissions' && !selectedClass && (
@@ -587,7 +540,7 @@ function ClassPage({ cls, classPage, setClassPage, assignments, submissions, liv
         <AssignmentsTab classId={cls.id} assignments={assignments} onChanged={onAssignmentsChange} />
       )}
       {classPage === 'live' && (
-        <LiveTab liveWork={classLiveWork} assignments={assignments} />
+        <LiveTab liveWork={classLiveWork} assignments={assignments} classes={[cls]} />
       )}
       {classPage === 'submissions' && (
         <SubmissionsTab submissions={submissions} assignments={assignments} />
@@ -844,8 +797,42 @@ function AssignmentForm({ classId, existing, onSaved, onCancel }) {
 }
 
 // ── Global Live page ──────────────────────────────────────────
-function LivePage({ liveWork, assignments }) {
-  const [activeKey, setActiveKey] = useState(null)
+// ── Helper: render text with new portion highlighted in green ──
+function DiffedText({ oldText, newText }) {
+  if (!newText) return <span className="text-sky-300 italic">Nothing written yet…</span>
+
+  // Find common prefix length
+  const minLen = Math.min(oldText.length, newText.length)
+  let commonLen = 0
+  while (commonLen < minLen && oldText[commonLen] === newText[commonLen]) {
+    commonLen++
+  }
+
+  const unchanged = newText.slice(0, commonLen)
+  const added     = newText.slice(commonLen)
+
+  return (
+    <>
+      <span>{unchanged}</span>
+      {added && (
+        <span style={{
+          backgroundColor: 'rgba(34,197,94,0.18)',
+          color: '#15803d',
+          borderRadius: '2px',
+          padding: '0 1px',
+        }}>
+          {added}
+        </span>
+      )}
+    </>
+  )
+}
+
+function LivePage({ liveWork, assignments, classes }) {
+  const [activeKey,  setActiveKey]  = useState(null)
+  const [snapshots,  setSnapshots]  = useState({}) // content at last "Check Progress"
+  const [checking,   setChecking]   = useState(false)
+  const [checkedAt,  setCheckedAt]  = useState(null)
   const entries = Object.values(liveWork)
 
   useEffect(() => {
@@ -853,6 +840,36 @@ function LivePage({ liveWork, assignments }) {
       setActiveKey(Object.keys(liveWork)[0])
     }
   }, [liveWork])
+
+  async function checkProgress() {
+    setChecking(true)
+    try {
+      // Fetch fresh live data for all classes
+      const cls_list = classes || []
+      let freshWork = {}
+      if (cls_list.length) {
+        const results = await Promise.all(
+          cls_list.map(c => api.get(`/classes/${c.id}/live`).then(r => r.data).catch(() => ({})))
+        )
+        freshWork = Object.assign({}, ...results)
+      } else {
+        // fallback: use current liveWork content as fresh
+        freshWork = liveWork
+      }
+
+      // Snapshot = what was shown before this check (current liveWork)
+      // After check, liveWork will be updated externally via pollLive,
+      // but we set snapshots NOW so we can diff against what was shown before.
+      const newSnapshots = {}
+      Object.keys(freshWork).forEach(key => {
+        newSnapshots[key] = liveWork[key]?.content || ''
+      })
+      setSnapshots(newSnapshots)
+      setCheckedAt(new Date())
+    } finally {
+      setChecking(false)
+    }
+  }
 
   if (entries.length === 0) return (
     <div>
@@ -862,30 +879,75 @@ function LivePage({ liveWork, assignments }) {
     </div>
   )
 
-  const active = activeKey ? liveWork[activeKey] : entries[0]
-  const wordCount = (active?.content || '').trim().split(/\s+/).filter(Boolean).length
-  const charCount = (active?.content || '').length
+  const active      = activeKey ? liveWork[activeKey] : entries[0]
+  const activeSnap  = activeKey ? (snapshots[activeKey] ?? null) : null
+  const wordCount   = (active?.content || '').trim().split(/\s+/).filter(Boolean).length
+  const charCount   = (active?.content || '').length
+
+  // Count how many students have new text since last check
+  const newWriters = entries.filter(w => {
+    const key  = `${w.student_name}_${w.assignment_id}`
+    const snap = snapshots[key]
+    return snap !== undefined && (w.content || '') !== snap
+  }).length
 
   return (
     <div>
       <h1 className="page-title mb-2">⬤ Live Progress</h1>
-      <p className="font-hand text-base text-sky-400 mb-6">
-        {entries.length} student{entries.length !== 1 ? 's' : ''} writing now — click a name to view their work
-      </p>
+
+      {/* Header row: subtitle + check button */}
+      <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
+        <p className="font-hand text-base text-sky-400">
+          {entries.length} student{entries.length !== 1 ? 's' : ''} writing now — click a name to view their work
+        </p>
+        <div className="flex items-center gap-3">
+          {checkedAt && newWriters > 0 && (
+            <span className="font-hand text-sm text-green-600 flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
+              {newWriters} student{newWriters !== 1 ? 's' : ''} added new text
+            </span>
+          )}
+          {checkedAt && (
+            <span className="font-hand text-xs text-sky-300">
+              Last checked {checkedAt.toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            onClick={checkProgress}
+            disabled={checking}
+            className="btn-primary flex items-center gap-2 text-sm px-4 py-2">
+            {checking ? (
+              <>
+                <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin inline-block" />
+                Checking…
+              </>
+            ) : (
+              <>✦ Check New Progress</>
+            )}
+          </button>
+        </div>
+      </div>
 
       {/* Student tabs */}
       <div className="flex gap-2 flex-wrap mb-5">
         {entries.map(w => {
-          const key = `${w.student_name}_${w.assignment_id}`
-          const wc  = (w.content || '').trim().split(/\s+/).filter(Boolean).length
+          const key      = `${w.student_name}_${w.assignment_id}`
+          const wc       = (w.content || '').trim().split(/\s+/).filter(Boolean).length
           const isActive = key === activeKey
+          const hasNew   = snapshots[key] !== undefined && (w.content || '') !== snapshots[key]
           return (
             <button key={key} onClick={() => setActiveKey(key)}
               className={`font-hand text-base px-4 py-1.5 rounded-full border-2 transition-colors flex items-center gap-2
                 ${isActive ? 'bg-sky-400 text-white border-sky-400' : 'border-sky-200 text-ink-800 hover:border-sky-400'}`}>
-              <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
+              <span className={`w-2 h-2 rounded-full inline-block ${hasNew ? 'bg-green-400' : 'bg-sky-300'}`} />
               {w.student_name}
               <span className={`text-xs ${isActive ? 'text-sky-100' : 'text-sky-400'}`}>{wc}w</span>
+              {hasNew && (
+                <span className={`text-xs font-hand px-1.5 py-0.5 rounded-full
+                  ${isActive ? 'bg-white/20 text-white' : 'bg-green-100 text-green-700'}`}>
+                  new
+                </span>
+              )}
             </button>
           )
         })}
@@ -902,11 +964,30 @@ function LivePage({ liveWork, assignments }) {
               Updated {new Date(active.last_updated).toLocaleTimeString()}
             </span>
           </div>
+
+          {/* Legend — only show after a check has been done */}
+          {activeSnap !== null && (
+            <div className="flex items-center gap-4 mb-3">
+              <span className="font-hand text-xs text-sky-400 flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-sm bg-sky-50 border border-sky-200" />
+                Written before
+              </span>
+              <span className="font-hand text-xs text-green-700 flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-sm" style={{backgroundColor:'rgba(34,197,94,0.25)'}} />
+                Added since last check
+              </span>
+            </div>
+          )}
+
           <div className="bg-sky-50 rounded-xl px-5 py-4 font-serif text-sm text-ink-800 leading-relaxed
                           whitespace-pre-wrap min-h-[120px]"
                style={{ backgroundImage: 'repeating-linear-gradient(transparent,transparent 27px,rgba(46,157,209,0.08) 28px)' }}>
-            {active.content || <span className="text-sky-300 italic">Nothing written yet…</span>}
+            {activeSnap !== null
+              ? <DiffedText oldText={activeSnap} newText={active.content || ''} />
+              : (active.content || <span className="text-sky-300 italic">Nothing written yet…</span>)
+            }
           </div>
+
           <p className="font-hand text-xs text-sky-400 mt-2">
             {wordCount} word{wordCount !== 1 ? 's' : ''} · {charCount} character{charCount !== 1 ? 's' : ''}
           </p>
@@ -917,8 +998,8 @@ function LivePage({ liveWork, assignments }) {
 }
 
 // ── Live tab (inside class) ───────────────────────────────────
-function LiveTab({ liveWork, assignments }) {
-  return <LivePage liveWork={liveWork} assignments={assignments} />
+function LiveTab({ liveWork, assignments, classes }) {
+  return <LivePage liveWork={liveWork} assignments={assignments} classes={classes} />
 }
 
 // ── Global Submissions page ───────────────────────────────────
