@@ -17,7 +17,8 @@ import database
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'app')
 
-app = Flask(__name__, static_folder=STATIC_DIR, static_url_path='/assets')
+# Disable Flask's built-in static serving — we handle all static files manually below
+app = Flask(__name__, static_folder=None)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
