@@ -15,7 +15,7 @@ import jwt
 
 import database
 
-app = Flask(__name__, static_folder=None)
+app = Flask(__name__, static_folder='static/app', static_url_path='')
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -335,40 +335,59 @@ def http_update_progress():
 #  SOCKET.IO
 # ─────────────────────────────────────────────
 
+@socketio.on('join_room')
+def handle_join_room(data):
+    """Teacher or student joins a class room to receive updates for that class."""
+    from flask_socketio import join_room
+    room = f"class_{data.get('class_id')}"
+    join_room(room)
+    emit('room_joined', {'room': room})
+
+
 @socketio.on('update_progress')
 def handle_progress(data):
+    class_id = data.get('class_id')
     database.save_student_work(
         data.get('student_id'), data.get('student_name'),
-        data.get('assignment_id'), data.get('class_id'), data.get('content', '')
+        data.get('assignment_id'), class_id, data.get('content', '')
     )
-    emit('progress_update', {
+    payload = {
         'student_name':  data.get('student_name'),
         'assignment_id': data.get('assignment_id'),
-        'class_id':      data.get('class_id'),
+        'class_id':      class_id,
         'content':       data.get('content', ''),
         'last_updated':  datetime.now().isoformat()
-    }, broadcast=True)
+    }
+    # Emit to the class room so only that class's teacher sees it
+    room = f"class_{class_id}"
+    socketio.emit('progress_update', payload, room=room)
 
 
 @socketio.on('join_assignment')
 def handle_join(data):
-    emit('student_joined', {
+    class_id = data.get('class_id')
+    payload = {
         'student_name':  data.get('student_name'),
         'assignment_id': data.get('assignment_id'),
-        'class_id':      data.get('class_id'),
+        'class_id':      class_id,
         'timestamp':     datetime.now().isoformat()
-    }, broadcast=True)
+    }
+    room = f"class_{class_id}"
+    socketio.emit('student_joined', payload, room=room)
 
 
 @socketio.on('leave_assignment')
 def handle_leave(data):
+    class_id = data.get('class_id')
     database.delete_student_work(data.get('student_id'), data.get('assignment_id'))
-    emit('student_left', {
+    payload = {
         'student_name':  data.get('student_name'),
         'assignment_id': data.get('assignment_id'),
-        'class_id':      data.get('class_id'),
+        'class_id':      class_id,
         'timestamp':     datetime.now().isoformat()
-    }, broadcast=True)
+    }
+    room = f"class_{class_id}"
+    socketio.emit('student_left', payload, room=room)
 
 
 # ─────────────────────────────────────────────
@@ -378,38 +397,18 @@ def handle_leave(data):
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_react(path):
-    # Let SocketIO and API errors stay as-is
-    if path.startswith('api/') or path.startswith('socket.io'):
+    if path.startswith('api/'):
         return jsonify({'error': 'Not found'}), 404
-
-    import mimetypes
     static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'app')
-    index_path = os.path.join(static_dir, 'index.html')
-
-    # Serve real static assets (JS, CSS, images, fonts…)
     if path:
         full_path = os.path.join(static_dir, path)
-        # Guard against path traversal
-        try:
-            if os.path.commonpath([os.path.realpath(full_path), os.path.realpath(static_dir)]) == os.path.realpath(static_dir):
-                if os.path.isfile(full_path):
-                    mime = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
-                    with open(full_path, 'rb') as f:
-                        return app.response_class(f.read(), mimetype=mime)
-        except (ValueError, OSError):
-            pass
-
-    # All client-side routes (/dashboard, /classroom, etc.) → return index.html
-    # so React Router handles them.
-    if not os.path.isfile(index_path):
-        return jsonify({'error': 'Frontend not built — run: npm run build'}), 500
-
-    with open(index_path, 'rb') as f:
-        return app.response_class(
-            f.read(),
-            mimetype='text/html',
-            headers={'Cache-Control': 'no-cache, no-store, must-revalidate'}
-        )
+        if os.path.exists(full_path) and os.path.isfile(full_path):
+            import mimetypes
+            mime = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
+            with open(full_path, 'rb') as f:
+                return app.response_class(f.read(), mimetype=mime)
+    with open(os.path.join(static_dir, 'index.html'), 'rb') as f:
+        return app.response_class(f.read(), mimetype='text/html')
 
 if __name__ == "__main__":
     from gevent import pywsgi

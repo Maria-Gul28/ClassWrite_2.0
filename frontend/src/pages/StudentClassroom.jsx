@@ -24,6 +24,17 @@ export default function StudentClassroom() {
       setAssignments(aRes.data)
       setSubmissions(sRes.data)
     }).finally(() => setLoading(false))
+
+    // Join the class room so the server can route events to this class
+    if (cls?.id) {
+      const socket = getSocket()
+      function joinRoom() {
+        socket.emit('join_room', { class_id: cls.id })
+      }
+      socket.on('connect', joinRoom)
+      if (socket.connected) joinRoom()
+      return () => socket.off('connect', joinRoom)
+    }
   }, [])
 
   const submittedIds = new Set(submissions.map(s => s.assignment_id))

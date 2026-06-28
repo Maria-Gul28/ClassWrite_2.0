@@ -47,10 +47,9 @@ export default function TeacherApp() {
     }
 
     function onStudentJoined(data) {
-      // Ensure the student appears in liveWork immediately (content may be empty)
       const key = `${data.student_name}_${data.assignment_id}`
       setLiveWork(prev => {
-        if (prev[key]) return prev   // already tracked
+        if (prev[key]) return prev
         return {
           ...prev,
           [key]: {
@@ -70,17 +69,35 @@ export default function TeacherApp() {
       setLiveWork(prev => { const n = { ...prev }; delete n[key]; return n })
     }
 
+    // Join all class rooms so we receive events for our classes.
+    // Re-join on reconnect since rooms are cleared on disconnect.
+    function joinClassRooms() {
+      // classes may not be loaded yet on first connect — we also call this
+      // after loadAll() finishes via the classesRef below.
+      setClasses(current => {
+        current.forEach(cls => {
+          socket.emit('join_room', { class_id: cls.id })
+        })
+        return current
+      })
+    }
+
+    socket.on('connect',          joinClassRooms)
     socket.on('progress_update',  onProgress)
     socket.on('student_joined',   onStudentJoined)
     socket.on('student_left',     onStudentLeft)
+
+    // If already connected when this effect runs, join rooms immediately
+    if (socket.connected) joinClassRooms()
 
     // Fallback poll every 15s in case a socket event is missed
     const interval = setInterval(pollLive, 15000)
 
     return () => {
-      socket.off('progress_update',  onProgress)
-      socket.off('student_joined',   onStudentJoined)
-      socket.off('student_left',     onStudentLeft)
+      socket.off('connect',         joinClassRooms)
+      socket.off('progress_update', onProgress)
+      socket.off('student_joined',  onStudentJoined)
+      socket.off('student_left',    onStudentLeft)
       clearInterval(interval)
     }
   }, [])
@@ -99,6 +116,11 @@ export default function TeacherApp() {
       setSubmissions(sResults.flat())
       // Live work from first class if any
       if (cls.length) pollLive(cls)
+      // Join socket rooms now that we know the class IDs
+      const socket = getSocket()
+      if (socket.connected) {
+        cls.forEach(c => socket.emit('join_room', { class_id: c.id }))
+      }
     } catch (e) {
       console.error(e)
     } finally {
