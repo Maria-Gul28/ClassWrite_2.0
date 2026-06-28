@@ -7,7 +7,7 @@ load_dotenv()
 import os
 from datetime import datetime, timedelta, timezone
 
-from flask import Flask, request, jsonify, send_from_directory, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
@@ -337,7 +337,6 @@ def http_update_progress():
 
 @socketio.on('join_room')
 def handle_join_room(data):
-    """Teacher or student joins a class room to receive updates for that class."""
     from flask_socketio import join_room
     room = f"class_{data.get('class_id')}"
     join_room(room)
@@ -358,7 +357,6 @@ def handle_progress(data):
         'content':       data.get('content', ''),
         'last_updated':  datetime.now().isoformat()
     }
-    # Emit to the class room so only that class's teacher sees it
     room = f"class_{class_id}"
     socketio.emit('progress_update', payload, room=room)
 
@@ -397,25 +395,37 @@ def handle_leave(data):
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_react(path):
+    # Let Socket.IO handle its own transport paths
+    if path.startswith('socket.io'):
+        return jsonify({'error': 'Not found'}), 404
+    # API paths that don't match any route above are genuinely 404
     if path.startswith('api/'):
         return jsonify({'error': 'Not found'}), 404
+
     static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'app')
+    index_path = os.path.join(static_dir, 'index.html')
+
+    # Serve real static assets (JS chunks, CSS, images, fonts, etc.)
     if path:
         full_path = os.path.join(static_dir, path)
-        if os.path.exists(full_path) and os.path.isfile(full_path):
+        if os.path.isfile(full_path):
             import mimetypes
             mime = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
             with open(full_path, 'rb') as f:
                 return app.response_class(f.read(), mimetype=mime)
-    with open(os.path.join(static_dir, 'index.html'), 'rb') as f:
-        return app.response_class(f.read(), mimetype='text/html')
+
+    # Everything else (React routes like /dashboard, /classroom, /join, etc.)
+    # → return index.html so React Router handles it client-side
+    try:
+        with open(index_path, 'rb') as f:
+            return app.response_class(f.read(), mimetype='text/html')
+    except FileNotFoundError:
+        return jsonify({'error': 'Frontend not built. Run npm run build first.'}), 500
+
 
 if __name__ == "__main__":
-    from gevent import pywsgi
-    from geventwebsocket.handler import WebSocketHandler
     port = int(os.environ.get('PORT', 8080))
     print(f'Starting server on port {port}')
-    server = pywsgi.WSGIServer(('0.0.0.0', port), app, handler_class=WebSocketHandler)
-    server.serve_forever()
+    socketio.run(app, host='0.0.0.0', port=port)
 else:
     application = app
