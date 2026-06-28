@@ -390,92 +390,114 @@ function AssignmentForm({ classId, existing, onSaved, onCancel }) {
 
 // ── Live tab ─────────────────────────────────────────────────
 function LiveTab({ classId }) {
-  const [work, setWork] = useState({})
-  const [loading, setLoading] = useState(true)
-  const [activeKey, setActiveKey] = useState(null)
+  const [work,        setWork]        = useState({})
+  const [loading,     setLoading]     = useState(true)
+  const [refreshing,  setRefreshing]  = useState(false)
+  const [activeKey,   setActiveKey]   = useState(null)
+  const [lastFetched, setLastFetched] = useState(null)
+
+  function fetchWork(isInitial = false) {
+    if (!isInitial) setRefreshing(true)
+    return api.get(`/classes/${classId}/live`).then(r => {
+      setWork(r.data)
+      setLastFetched(new Date())
+      setActiveKey(prev => {
+        const keys = Object.keys(r.data)
+        if (isInitial && keys.length) return keys[0]
+        if (!prev || !r.data[prev]) return keys[0] || null
+        return prev
+      })
+    }).finally(() => {
+      setLoading(false)
+      setRefreshing(false)
+    })
+  }
 
   useEffect(() => {
-    api.get(`/classes/${classId}/live`).then(r => {
-      setWork(r.data)
-      const keys = Object.keys(r.data)
-      if (keys.length) setActiveKey(keys[0])
-    }).finally(() => setLoading(false))
-
-    const interval = setInterval(() => {
-      api.get(`/classes/${classId}/live`).then(r => {
-        setWork(r.data)
-        setActiveKey(prev => {
-          const keys = Object.keys(r.data)
-          if (!prev || !r.data[prev]) return keys[0] || null
-          return prev
-        })
-      })
-    }, 5000)
+    fetchWork(true)
+    const interval = setInterval(() => fetchWork(false), 5000)
     return () => clearInterval(interval)
   }, [classId])
 
   if (loading) return <Loader />
 
   const entries = Object.values(work)
-
-  if (entries.length === 0) return (
-    <div>
-      <p className="font-hand text-base text-sky-400 mb-5">Auto-refreshes every 5 seconds</p>
-      <Empty icon="/assets/live_progress.svg" message="No students are writing right now" />
-    </div>
-  )
-
   const active = activeKey ? work[activeKey] : entries[0]
   const wordCount = (active?.content || '').trim().split(/\s+/).filter(Boolean).length
   const charCount = (active?.content || '').length
 
   return (
     <div>
-      <p className="font-hand text-base text-sky-400 mb-4">
-        Auto-refreshes every 5 seconds · {entries.length} student{entries.length !== 1 ? 's' : ''} writing now
-      </p>
-
-      {/* Student tabs */}
-      <div className="flex gap-2 flex-wrap mb-5">
-        {entries.map(w => {
-          const key = `${w.student_name}_${w.assignment_id}`
-          const wc  = (w.content || '').trim().split(/\s+/).filter(Boolean).length
-          const isActive = key === activeKey || (!activeKey && w === entries[0])
-          return (
-            <button key={key} onClick={() => setActiveKey(key)}
-              className={`font-hand text-base px-4 py-1.5 rounded-full border-2 transition-colors flex items-center gap-2
-                ${isActive
-                  ? 'bg-sky-400 text-white border-sky-400'
-                  : 'border-sky-200 text-ink-800 hover:border-sky-400'}`}>
-              <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
-              {w.student_name}
-              <span className={`text-xs ${isActive ? 'text-sky-100' : 'text-sky-400'}`}>{wc}w</span>
-            </button>
-          )
-        })}
+      {/* Status bar */}
+      <div className="flex items-center justify-between mb-5">
+        <p className="font-hand text-base text-sky-400">
+          {entries.length > 0
+            ? `${entries.length} student${entries.length !== 1 ? 's' : ''} writing now`
+            : 'No students writing right now'}
+          {lastFetched && (
+            <span className="text-sky-300 ml-2">
+              · refreshed {lastFetched.toLocaleTimeString()}
+            </span>
+          )}
+        </p>
+        <button
+          onClick={() => fetchWork(false)}
+          disabled={refreshing}
+          className="font-hand text-base px-4 py-1.5 rounded-full border-2 border-sky-200
+                     text-sky-500 hover:border-sky-400 hover:bg-sky-50 transition-colors
+                     flex items-center gap-2 disabled:opacity-50">
+          <span className={refreshing ? 'animate-spin inline-block' : ''}>↻</span>
+          {refreshing ? 'Refreshing…' : 'Refresh now'}
+        </button>
       </div>
 
-      {/* Active student preview */}
-      {active && (
-        <div className="card-doodle p-6">
-          <div className="flex justify-between items-center mb-3">
-            <span className="font-hand text-xl text-ink-900 flex items-center gap-2">
-              <img src="/assets/student.svg" alt="" className="w-5 h-5 object-contain" />
-              {active.student_name}
-            </span>
-            <span className="font-hand text-xs text-sky-300">
-              Updated {new Date(active.last_updated).toLocaleTimeString()}
-            </span>
+      {entries.length === 0 ? (
+        <Empty icon="/assets/live_progress.svg" message="No students are writing right now" />
+      ) : (
+        <>
+          {/* Student tabs */}
+          <div className="flex gap-2 flex-wrap mb-5">
+            {entries.map(w => {
+              const key = `${w.student_name}_${w.assignment_id}`
+              const wc  = (w.content || '').trim().split(/\s+/).filter(Boolean).length
+              const isActive = key === activeKey || (!activeKey && w === entries[0])
+              return (
+                <button key={key} onClick={() => setActiveKey(key)}
+                  className={`font-hand text-base px-4 py-1.5 rounded-full border-2 transition-colors flex items-center gap-2
+                    ${isActive
+                      ? 'bg-sky-400 text-white border-sky-400'
+                      : 'border-sky-200 text-ink-800 hover:border-sky-400'}`}>
+                  <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
+                  {w.student_name}
+                  <span className={`text-xs ${isActive ? 'text-sky-100' : 'text-sky-400'}`}>{wc}w</span>
+                </button>
+              )
+            })}
           </div>
-          <div className="bg-sky-50 rounded-xl px-5 py-4 font-serif text-sm text-ink-800 leading-relaxed
-                          whitespace-pre-wrap min-h-[120px]"
-               style={{ backgroundImage: 'repeating-linear-gradient(transparent,transparent 27px,rgba(46,157,209,0.08) 28px)' }}>
-            {active.content || <span className="text-sky-300 italic">Nothing written yet…</span>}
-          </div>
-          <p className="font-hand text-xs text-sky-400 mt-2">
-            {wordCount} word{wordCount !== 1 ? 's' : ''} · {charCount} character{charCount !== 1 ? 's' : ''}
-          </p>
-        </div>
+
+          {/* Active student preview */}
+          {active && (
+            <div className="card-doodle p-6">
+              <div className="flex justify-between items-center mb-3">
+                <span className="font-hand text-xl text-ink-900 flex items-center gap-2">
+                  <img src="/assets/student.svg" alt="" className="w-5 h-5 object-contain" />
+                  {active.student_name}
+                </span>
+                <span className="font-hand text-xs text-sky-300">
+                  Student last saved {new Date(active.last_updated).toLocaleTimeString()}
+                </span>
+              </div>
+              <div className="bg-sky-50 rounded-xl px-5 py-4 font-serif text-sm text-ink-800 leading-relaxed
+                              whitespace-pre-wrap min-h-[120px]"
+                   style={{ backgroundImage: 'repeating-linear-gradient(transparent,transparent 27px,rgba(46,157,209,0.08) 28px)' }}>
+                {active.content || <span className="text-sky-300 italic">Nothing written yet…</span>}
+              </div>
+              <p className="font-hand text-xs text-sky-400 mt-2">
+                {wordCount} word{wordCount !== 1 ? 's' : ''} · {charCount} character{charCount !== 1 ? 's' : ''}
+              </p>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
