@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
+import { getSocket } from '../utils/socket'
 
 const GRADES = ['1st Grade','2nd Grade','3rd Grade','4th Grade','5th Grade',
                 '6th Grade','7th Grade','8th Grade','9th Grade','10th Grade',
@@ -27,9 +28,41 @@ export default function TeacherApp() {
   // Load everything on mount
   useEffect(() => {
     loadAll()
-    // Live work poll
-    const interval = setInterval(pollLive, 5000)
-    return () => clearInterval(interval)
+
+    // Socket: listen for real-time student progress updates
+    const socket = getSocket()
+    socket.on('progress_update', (data) => {
+      const key = `${data.student_name}_${data.assignment_id}`
+      setLiveWork(prev => ({
+        ...prev,
+        [key]: {
+          student_name:  data.student_name,
+          assignment_id: data.assignment_id,
+          class_id:      data.class_id,
+          content:       data.content,
+          last_updated:  data.last_updated,
+          status:        'in_progress',
+        }
+      }))
+    })
+
+    socket.on('student_left', (data) => {
+      const key = `${data.student_name}_${data.assignment_id}`
+      setLiveWork(prev => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+    })
+
+    // Fallback poll every 15s (catches missed socket events / page-load state)
+    const interval = setInterval(pollLive, 15000)
+
+    return () => {
+      socket.off('progress_update')
+      socket.off('student_left')
+      clearInterval(interval)
+    }
   }, [])
 
   async function loadAll() {
@@ -770,36 +803,13 @@ function AssignmentForm({ classId, existing, onSaved, onCancel }) {
 
 // ── Global Live page ──────────────────────────────────────────
 function LivePage({ liveWork, assignments }) {
-  const [activeKey,   setActiveKey]   = useState(null)
-  const [flash,       setFlash]       = useState({})   // key → true when content just changed
-  const [justUpdated, setJustUpdated] = useState(false) // for the active card glow
-  const prevLiveWork  = useRef({})
+  const [activeKey, setActiveKey] = useState(null)
   const entries = Object.values(liveWork)
 
-  // Auto-select first student
   useEffect(() => {
     if (entries.length && (!activeKey || !liveWork[activeKey])) {
       setActiveKey(Object.keys(liveWork)[0])
     }
-  }, [liveWork])
-
-  // Detect content changes → trigger flash on changed student tabs
-  useEffect(() => {
-    const newFlash = {}
-    Object.entries(liveWork).forEach(([key, w]) => {
-      const prev = prevLiveWork.current[key]
-      if (prev && prev.content !== w.content) {
-        newFlash[key] = true
-        // If it's the active student, glow the card
-        if (key === activeKey) setJustUpdated(true)
-      }
-    })
-    if (Object.keys(newFlash).length) {
-      setFlash(f => ({ ...f, ...newFlash }))
-      setTimeout(() => setFlash({}), 1200)
-    }
-    if (justUpdated) setTimeout(() => setJustUpdated(false), 1200)
-    prevLiveWork.current = liveWork
   }, [liveWork])
 
   if (entries.length === 0) return (
@@ -814,9 +824,6 @@ function LivePage({ liveWork, assignments }) {
   const wordCount = (active?.content || '').trim().split(/\s+/).filter(Boolean).length
   const charCount = (active?.content || '').length
 
-  const d = active?.last_updated ? new Date(active.last_updated) : null
-  const timeStr = d && !isNaN(d.getTime()) ? d.toLocaleTimeString() : null
-
   return (
     <div>
       <h1 className="page-title mb-2">⬤ Live Progress</h1>
@@ -829,21 +836,12 @@ function LivePage({ liveWork, assignments }) {
         {entries.map(w => {
           const key = `${w.student_name}_${w.assignment_id}`
           const wc  = (w.content || '').trim().split(/\s+/).filter(Boolean).length
-          const isActive  = key === activeKey
-          const isFlashing = flash[key]
+          const isActive = key === activeKey
           return (
             <button key={key} onClick={() => setActiveKey(key)}
-              style={{
-                transition: 'background 0.3s, border-color 0.3s, box-shadow 0.3s',
-                boxShadow: isFlashing ? '0 0 0 3px rgba(74,222,128,0.5)' : undefined
-              }}
-              className={`font-hand text-base px-4 py-1.5 rounded-full border-2 flex items-center gap-2
-                ${isActive
-                  ? 'bg-sky-400 text-white border-sky-400'
-                  : isFlashing
-                    ? 'border-green-400 text-ink-800 bg-green-50'
-                    : 'border-sky-200 text-ink-800 hover:border-sky-400'}`}>
-              <span className="w-2 h-2 rounded-full bg-green-400 inline-block animate-pulse" />
+              className={`font-hand text-base px-4 py-1.5 rounded-full border-2 transition-colors flex items-center gap-2
+                ${isActive ? 'bg-sky-400 text-white border-sky-400' : 'border-sky-200 text-ink-800 hover:border-sky-400'}`}>
+              <span className="w-2 h-2 rounded-full bg-green-400 inline-block" />
               {w.student_name}
               <span className={`text-xs ${isActive ? 'text-sky-100' : 'text-sky-400'}`}>{wc}w</span>
             </button>
@@ -852,37 +850,22 @@ function LivePage({ liveWork, assignments }) {
       </div>
 
       {active && (
-        <div className="card-doodle p-6"
-          style={{
-            transition: 'box-shadow 0.4s, border-color 0.4s',
-            borderColor: justUpdated ? '#4ade80' : undefined,
-            boxShadow:   justUpdated ? '0 0 0 3px rgba(74,222,128,0.25), 3px 4px 0 rgba(46,157,209,0.2)' : undefined
-          }}>
+        <div className="card-doodle p-6">
           <div className="flex justify-between items-center mb-3">
             <span className="font-hand text-xl text-ink-900 flex items-center gap-2">
               <img src="/assets/student.svg" alt="" className="w-5 h-5 object-contain" />
               {active.student_name}
             </span>
-            <span className="font-hand text-xs flex items-center gap-1.5"
-                  style={{ color: justUpdated ? '#4ade80' : undefined, transition: 'color 0.4s' }}>
-              {justUpdated && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-ping inline-block" />}
-              {timeStr ? `Updated ${timeStr}` : ''}
+            <span className="font-hand text-xs text-sky-300">
+              Updated {new Date(active.last_updated).toLocaleTimeString()}
             </span>
           </div>
-
-          {/* Writing area — content transitions smoothly */}
-          <div className="rounded-xl px-5 py-4 font-serif text-sm text-ink-800 leading-relaxed
+          <div className="bg-sky-50 rounded-xl px-5 py-4 font-serif text-sm text-ink-800 leading-relaxed
                           whitespace-pre-wrap min-h-[120px]"
-               style={{
-                 backgroundImage: 'repeating-linear-gradient(transparent,transparent 27px,rgba(46,157,209,0.08) 28px)',
-                 backgroundColor: justUpdated ? 'rgba(240,253,244,0.8)' : '#eef4fb',
-                 transition: 'background-color 0.6s ease'
-               }}>
+               style={{ backgroundImage: 'repeating-linear-gradient(transparent,transparent 27px,rgba(46,157,209,0.08) 28px)' }}>
             {active.content || <span className="text-sky-300 italic">Nothing written yet…</span>}
           </div>
-
-          <p className="font-hand text-xs text-sky-400 mt-2"
-             style={{ transition: 'all 0.3s' }}>
+          <p className="font-hand text-xs text-sky-400 mt-2">
             {wordCount} word{wordCount !== 1 ? 's' : ''} · {charCount} character{charCount !== 1 ? 's' : ''}
           </p>
         </div>

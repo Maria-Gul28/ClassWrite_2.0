@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import TopBar from '../components/TopBar'
 import api from '../utils/api'
+import { getSocket, disconnectSocket } from '../utils/socket'
 
 export default function StudentClassroom() {
   const { cls } = useAuth()
@@ -172,7 +173,7 @@ function AssignmentList({ assignments, submittedIds, onOpen }) {
 
 // ── Writing view ──────────────────────────────────────────────
 function WritingView({ assignment, isSubmitted, onBack, onSubmitted }) {
-  const { cls } = useAuth()
+  const { user, cls } = useAuth()
   const [content,   setContent]   = useState('')
   const [saving,    setSaving]    = useState(false)
   const [saved,     setSaved]     = useState(true)
@@ -180,20 +181,62 @@ function WritingView({ assignment, isSubmitted, onBack, onSubmitted }) {
   const [busy,      setBusy]      = useState(false)
   const [slide,     setSlide]     = useState(0)
   const images = assignment.images || []
+  const saveTimer = useRef(null)
 
+  // Emit via socket on every keystroke (debounced 500ms)
+  // Also POST via HTTP as a reliable backup every 5s
   useEffect(() => {
     if (!content && saved) return
     setSaved(false)
-    const t = setTimeout(() => {
+
+    // Clear previous debounce
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+
+    saveTimer.current = setTimeout(() => {
       setSaving(true)
+
+      const payload = {
+        student_id:    user?.id,
+        student_name:  user?.name,
+        assignment_id: assignment.id,
+        class_id:      cls?.id,
+        content,
+      }
+
+      // Primary: emit via socket (instant for teacher)
+      const socket = getSocket()
+      socket.emit('update_progress', payload)
+
+      // Backup: also HTTP-persist to DB so it survives reconnects
       api.post('/update_progress', {
         assignment_id: assignment.id,
-        class_id: cls?.id,
-        content
+        class_id:      cls?.id,
+        content,
       }).catch(() => {}).finally(() => { setSaving(false); setSaved(true) })
-    }, 800)
-    return () => clearTimeout(t)
+
+    }, 500)
+
+    return () => clearTimeout(saveTimer.current)
   }, [content])
+
+  // Announce join/leave via socket
+  useEffect(() => {
+    const socket = getSocket()
+    socket.emit('join_assignment', {
+      student_id:    user?.id,
+      student_name:  user?.name,
+      assignment_id: assignment.id,
+      class_id:      cls?.id,
+    })
+    return () => {
+      socket.emit('leave_assignment', {
+        student_id:    user?.id,
+        student_name:  user?.name,
+        assignment_id: assignment.id,
+        class_id:      cls?.id,
+      })
+    }
+  }, [assignment.id])
 
   async function handleSubmit() {
     if (!content.trim()) { alert('Please write something first!'); return }
