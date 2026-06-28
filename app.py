@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -17,7 +20,7 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 bcrypt = Bcrypt(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', logger=True, engineio_logger=True)
 
 with app.app_context():
     database.init_db()
@@ -332,81 +335,89 @@ def http_update_progress():
 #  SOCKET.IO
 # ─────────────────────────────────────────────
 
+@socketio.on('connect')
+def handle_connect():
+    print(f'Client connected: {request.sid}')
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f'Client disconnected: {request.sid}')
+
+@socketio.on('join_class_room')
+def handle_join_room(data):
+    """Teacher joins a room to watch a class."""
+    from flask_socketio import join_room
+    room = f"class_{data.get('class_id')}"
+    join_room(room)
+    print(f'Client {request.sid} joined room {room}')
+
 @socketio.on('update_progress')
 def handle_progress(data):
     database.save_student_work(
         data.get('student_id'), data.get('student_name'),
         data.get('assignment_id'), data.get('class_id'), data.get('content', '')
     )
-    emit('progress_update', {
+    payload = {
         'student_name':  data.get('student_name'),
         'assignment_id': data.get('assignment_id'),
         'class_id':      data.get('class_id'),
         'content':       data.get('content', ''),
         'last_updated':  datetime.now().isoformat()
-    }, broadcast=True)
+    }
+    # Broadcast to everyone (teacher dashboard listening globally)
+    emit('progress_update', payload, broadcast=True)
+    # Also emit to the class-specific room
+    room = f"class_{data.get('class_id')}"
+    emit('progress_update', payload, room=room, include_self=False)
+    print(f"progress_update emitted for {data.get('student_name')} in class {data.get('class_id')}")
 
 
 @socketio.on('join_assignment')
 def handle_join(data):
-    emit('student_joined', {
+    payload = {
         'student_name':  data.get('student_name'),
         'assignment_id': data.get('assignment_id'),
         'class_id':      data.get('class_id'),
         'timestamp':     datetime.now().isoformat()
-    }, broadcast=True)
+    }
+    emit('student_joined', payload, broadcast=True)
+    room = f"class_{data.get('class_id')}"
+    emit('student_joined', payload, room=room, include_self=False)
 
 
 @socketio.on('leave_assignment')
 def handle_leave(data):
     database.delete_student_work(data.get('student_id'), data.get('assignment_id'))
-    emit('student_left', {
+    payload = {
         'student_name':  data.get('student_name'),
         'assignment_id': data.get('assignment_id'),
         'class_id':      data.get('class_id'),
         'timestamp':     datetime.now().isoformat()
-    }, broadcast=True)
+    }
+    emit('student_left', payload, broadcast=True)
+    room = f"class_{data.get('class_id')}"
+    emit('student_left', payload, room=room, include_self=False)
 
 
 # ─────────────────────────────────────────────
 #  SERVE REACT — must be last, catches all non-API routes
 # ─────────────────────────────────────────────
 
-import mimetypes
-
-def _serve_index():
-    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'app')
-    with open(os.path.join(static_dir, 'index.html'), 'rb') as f:
-        return app.response_class(f.read(), mimetype='text/html')
-
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_react(path):
-    # Let Flask-SocketIO handle its own internal paths
-    if path.startswith('socket.io'):
-        from flask import abort
-        abort(404)
-    # Never intercept API routes
     if path.startswith('api/'):
         return jsonify({'error': 'Not found'}), 404
-    # Serve real static files (JS, CSS, images, etc.)
     static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'app')
     if path:
         full_path = os.path.join(static_dir, path)
         if os.path.exists(full_path) and os.path.isfile(full_path):
+            import mimetypes
             mime = mimetypes.guess_type(full_path)[0] or 'application/octet-stream'
             with open(full_path, 'rb') as f:
                 return app.response_class(f.read(), mimetype=mime)
-    # Everything else (client-side routes like /dashboard, /classroom) → index.html
-    return _serve_index()
-
-@app.errorhandler(404)
-def not_found(e):
-    # If the 404 came from a non-API path, return index.html so React Router handles it
-    from flask import request as req
-    if not req.path.startswith('/api/') and not req.path.startswith('/socket.io'):
-        return _serve_index()
-    return jsonify({'error': 'Not found'}), 404
+    with open(os.path.join(static_dir, 'index.html'), 'rb') as f:
+        return app.response_class(f.read(), mimetype='text/html')
 
 if __name__ == "__main__":
     from gevent import pywsgi
